@@ -345,12 +345,12 @@ namespace FileSharingWithQR.Controllers
                 //-get file by fileId
                 Console.WriteLine("GetFile.fileId" + fileId);
 
-                var files = Directory.GetFiles("Files");
+                var files = Directory.GetFiles("UploadedFiles");
                 Console.WriteLine("files.length:" + files.Length);
 
                 //var filesWithoutExts = files.Select(file => file.Remove(file.LastIndexOf('.')));
 
-                var fileIdwithPath = "Files\\" + fileId;
+                var fileIdwithPath = "UploadedFiles\\" + fileId;
                 string? filePath = null;
                 string fileExt = "";
                 foreach (var file in files)

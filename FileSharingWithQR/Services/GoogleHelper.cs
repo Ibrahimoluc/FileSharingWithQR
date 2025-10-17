@@ -37,7 +37,7 @@ namespace FileSharingWithQR.Services
             string extension = FileServices.GetExt(mimeType);
 
             //var stream = new MemoryStream();
-            var stream = System.IO.File.Create("Files/" + fileId + "." + extension);
+            var stream = System.IO.File.Create("UploadedFiles/" + fileId + "." + extension);
 
             // Add a handler which will be notified on progress changes.
             // It will notify on each chunk download and when the
