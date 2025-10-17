@@ -1,0 +1,6 @@
+@FileSharingWithQR_HostAddress = http://localhost:5032
+
+GET {{FileSharingWithQR_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
