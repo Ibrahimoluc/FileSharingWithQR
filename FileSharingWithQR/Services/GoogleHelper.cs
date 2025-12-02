@@ -1,15 +1,17 @@
-﻿using Google.Apis.Auth.AspNetCore3;
+﻿using System.IO;
+using Google.Apis.Auth.AspNetCore3;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Download;
 using Google.Apis.Drive.v3;
 using Google.Apis.Drive.v3.Data;
 using Google.Apis.Services;
+using static Google.Apis.Drive.v3.FilesResource;
 
 namespace FileSharingWithQR.Services
 {
     public class GoogleHelper
     {
-        public static async Task<Google.Apis.Drive.v3.Data.File> DownloadADriveFile(IGoogleAuthProvider auth, string fileId)
+        public static async Task<string> DownloadADriveFile(IGoogleAuthProvider auth, string fileId)
         {
             GoogleCredential cred = await auth.GetCredentialAsync();
             var service = new DriveService(new BaseClientService.Initializer
@@ -21,28 +23,48 @@ namespace FileSharingWithQR.Services
             var request = service.Files.Get(fileId);
             var fileMetaData = await request.ExecuteAsync();
             var mimeType = fileMetaData.MimeType;
-            //var extension = "";
+            ExportRequest? exportRequest = null;
 
-            //switch (mimeType)
-            //{
-            //    case "application/vnd.google-apps.document":
-            //        extension = "docx";
-            //        break;
-            //    case "image/jpeg":
-            //        extension = "jpg";
-            //        break;
-            //    default:
-            //        throw new ArgumentException("This file type is not supported. Supported types are: docx, pdf, jpeg, png");
-            //}
-            string extension = FileServices.GetExt(mimeType);
+            if (IsGoogleWorkspaceFile(mimeType))
+            {
+                // Hangi formata dönüştüreceğimizi belirliyoruz
+                var exportMimeType = GetExportMimeType(mimeType);
+                Console.WriteLine($"Google Dosyası algılandı. {exportMimeType} formatına dönüştürülüyor...");
 
-            //var stream = new MemoryStream();
-            var stream = System.IO.File.Create("UploadedFiles/" + fileId + "." + extension);
+                // Export isteği oluştur
+                exportRequest = service.Files.Export(fileId, exportMimeType);
 
-            // Add a handler which will be notified on progress changes.
-            // It will notify on each chunk download and when the
-            // download is completed or failed.
-            request.MediaDownloader.ProgressChanged +=
+                // İndirirken ilerlemeyi takip et (Opsiyonel)
+                exportRequest.MediaDownloader.ProgressChanged += progress =>
+                {
+                    if (progress.Status == DownloadStatus.Failed)
+                    {
+                        Console.WriteLine("Dönüştürme başarısız: " + progress.Exception.Message);
+                    }
+                };
+
+            }
+
+            string extension = "";
+            if(!FileServices.TryGetExt(mimeType, out extension))
+            {
+                throw new NotSupportedException(
+                    $"This file type ({mimeType}) is not supported. Supported types are: docx, pdf, jpeg, png");
+            }
+
+            string fileGuid = Guid.NewGuid().ToString();
+            var stream = System.IO.File.Create("UploadedFiles/" + fileGuid + "." + extension);
+
+            if (exportRequest != null)
+            {
+                await exportRequest.DownloadAsync(stream);
+            }
+            else
+            {
+                // Add a handler which will be notified on progress changes.
+                // It will notify on each chunk download and when the
+                // download is completed or failed.
+                request.MediaDownloader.ProgressChanged +=
                 progress =>
                 {
                     switch (progress.Status)
@@ -64,20 +86,52 @@ namespace FileSharingWithQR.Services
                             }
                     }
                 };
-            //request.DownloadWithStatus(stream);
-            await request.DownloadAsync(stream);
-            //if (stream.CanSeek)
-            //{
-            //    Console.WriteLine("Stream seek lenebilir");
-            //    stream.Seek(0, SeekOrigin.Begin);
-            //}
-            //yapmassan istek bittikten hemen sonra, dosyayı 0kb olarak görebilirsin.
-            //Ama belli bir süre geçince gerçekten yüklenmiş olur.
-            //await stream.FlushAsync(); 
-
+                await request.DownloadAsync(stream);
+            }
+                
             stream.Dispose();
+            return fileGuid;
+        }
 
-            return fileMetaData;
+
+        // Dosyanın Google formatında olup olmadığını kontrol eder
+        private static bool IsGoogleWorkspaceFile(string mimeType)
+        {
+            return mimeType == "application/vnd.google-apps.document" ||
+                   mimeType == "application/vnd.google-apps.spreadsheet" ||
+                   mimeType == "application/vnd.google-apps.presentation";
+        }
+
+
+        // Google formatını Office formatına eşler
+        private static string GetExportMimeType(string googleMimeType)
+        {
+            switch (googleMimeType)
+            {
+                case "application/vnd.google-apps.document":
+                    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"; // .docx
+                case "application/vnd.google-apps.spreadsheet":
+                    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";       // .xlsx
+                case "application/vnd.google-apps.presentation":
+                    return "application/vnd.openxmlformats-officedocument.presentationml.presentation"; // .pptx
+                default:
+                    return "application/pdf"; // Bilinmeyenleri PDF yap (Güvenli liman)
+            }
+        }
+
+        // MimeType'a göre uzantı döner
+        private string GetExtensionForMimeType(string mimeType)
+        {
+            switch (mimeType)
+            {
+                case "application/vnd.openxmlformats-officedocument.wordprocessingml.document": return ".docx";
+                case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": return ".xlsx";
+                case "application/vnd.openxmlformats-officedocument.presentationml.presentation": return ".pptx";
+                case "application/pdf": return ".pdf";
+                default: return "";
+            }
         }
     }
+
+
 }

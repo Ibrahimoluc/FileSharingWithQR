@@ -4,46 +4,59 @@ namespace FileSharingWithQR.Services
 {
     public class FileServices
     {
-        public static string GetMimeType(string extension)
+        //public static List<KeyValuePair<string, string>> validExtsAndMimeTypes = new List<KeyValuePair<string, string>>(){
+        //    new KeyValuePair<string, string>("docx", "application/vnd.google-apps.document"),
+        //    new KeyValuePair<string, string>("jpg", "image/jpeg"),
+        //    new KeyValuePair<string, string>("pdf", "application/pdf")
+        //};
+
+        public static Dictionary<string, string> validExtsAndMimeTypes = new Dictionary<string, string>(){
+            {"docx", "application/vnd.google-apps.document"},
+            {"jpg", "image/jpeg"},
+            {"pdf", "application/pdf"},
+            {"xlsx", "application/vnd.google-apps.spreadsheet" },
+            {"pptx", "application/vnd.google-apps.presentation" }
+        };
+        public static bool TryGetMimeType(string extension, out string mimeType)
         {
-            string mimeType = "";
-            switch (extension)
+            //var mimeType = validExtsAndMimeTypes.FirstOrDefault(x => x.Key == extension);
+            //if(mimeType.Equals(default(KeyValuePair<string, string>)))
+            //{
+            //    throw new ArgumentException("This file type is not supported. Supported types are: docx, pdf, jpeg, png");
+            //}
+
+            //return mimeType.Value;
+            mimeType = "";
+            if (IsExtensionValid(extension))
             {
-                case "docx":
-                    mimeType = "application/vnd.google-apps.document";
-                    break;
-                case "jpg":
-                    mimeType = "image/jpeg";
-                    break;
-                case "pdf":
-                    mimeType = "application/pdf";
-                    break;
-                default:
-                    throw new ArgumentException("This file type is not supported. Supported types are: docx, pdf, jpeg, png");
+                mimeType = validExtsAndMimeTypes[extension];
+                return true;
             }
 
-            return mimeType;
+            return false;
         }
 
-        public static string GetExt(string mimeType)
+        public static bool TryGetExt(string mimeType, out string extension)
         {
-            string extension = "";
-            switch (mimeType)
+
+            extension = "";
+            if (IsMimeTypeValid(mimeType))
             {
-                case "application/vnd.google-apps.document":
-                    extension = "docx";
-                    break;
-                case "image/jpeg":
-                    extension = "jpg";
-                    break;
-                case "application/pdf":
-                    extension = "pdf";
-                    break;
-                default:
-                    throw new ArgumentException("This file type is not supported. Supported types are: docx, pdf, jpeg, png");
+                extension = validExtsAndMimeTypes.FirstOrDefault(x => x.Value == mimeType).Key;
+                return true;
             }
 
-            return extension;
+            return false;
+        }
+
+        public static bool IsMimeTypeValid(string mimetype)
+        {
+            return validExtsAndMimeTypes.ContainsValue(mimetype);
+        }
+
+        public static bool IsExtensionValid(string extension)
+        {
+            return validExtsAndMimeTypes.ContainsKey(extension);
         }
     }
 }
