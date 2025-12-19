@@ -1,4 +1,6 @@
+using System;
 using System.Collections;
+using System.Text.Json;
 using FileSharingWithQR.Services;
 using Google.Apis.Auth.AspNetCore3;
 using Google.Apis.Auth.OAuth2;
@@ -131,10 +133,35 @@ namespace FileSharingWithQR.Controllers
             return NotFound();
         }
 
+        [HttpGet("driveFile-Download2/{fileId}")]
+        [GoogleScopedAuthorize(DriveService.ScopeConstants.DriveReadonly)]
+        public async Task<IActionResult> DriveDownloadFilev2([FromServices] IGoogleAuthProvider auth, string fileId)
+        {
+            try
+            {
+                var result = await GoogleHelper.DownloadADriveFileWithMemoryStream(auth, fileId);
+                return File(result.Item1, result.Item2);
+            }
+            catch (Exception e)
+            {
+                // TODO(developer) - handle error appropriately
+                if (e is AggregateException)
+                {
+                    Console.WriteLine("Credential Not found");
+                }
+                else
+                {
+                    throw;
+                }
+            }
+            return NotFound();
+        }
+
+
 
         [HttpGet("FileToken/{fileId}")]
         [GoogleScopedAuthorize(DriveService.ScopeConstants.DriveReadonly)]
-        public async Task<IActionResult> GetFileToken([FromServices] IGoogleAuthProvider auth, string fileId, DateTime endTime)
+        public IActionResult GetFileToken([FromServices] IGoogleAuthProvider auth, string fileId, DateTime endTime)
         {
             try
             {
@@ -143,14 +170,12 @@ namespace FileSharingWithQR.Controllers
                 if (DateTime.Compare(endTime, DateTime.UtcNow) <= 0)
                 {
                     Console.WriteLine("GetFileToken: endTime is invalid");
-                    throw new ApplicationException("The sharing time of the file is ended");
+                    return BadRequest(new { error = "Expiration Date is invalid." });
                 }
 
-                string fileGuid = await GoogleHelper.DownloadADriveFile(auth, fileId);
-        
-                return Ok(new { token = JwtHelper.CreateToken(fileGuid, endTime) });
+                return Ok(new { token = JwtHelper.CreateToken(fileId, endTime, "drive") });
             }
-            catch(NotSupportedException e)
+            catch (NotSupportedException e)
             {
                 return BadRequest(e.Message);
             }
@@ -174,14 +199,14 @@ namespace FileSharingWithQR.Controllers
             if (file == null || file.Length == 0)
             {
                 Console.WriteLine("Dosya yüklenemedi");
-                return BadRequest("Dosya yüklenmedi.");
+                return BadRequest(new { error = "Dosya yüklenmedi." });
             }
 
   
             if (file.Length > 10 * 1024 * 1024)
             {
                 Console.WriteLine("Dosya boyutu 10MB'tan büyük olamaz.");
-                return BadRequest("Dosya boyutu 10MB'tan büyük olamaz.");
+                return BadRequest(new { error = "Dosya boyutu 10MB'tan büyük olamaz." });
             }
 
             try
@@ -199,12 +224,13 @@ namespace FileSharingWithQR.Controllers
 
                  if (!FileServices.TryGetMimeType(extension.TrimStart('.'), out _))
                 {
-                    return BadRequest("Desteklenmeyen dosya türü.");
+                    return BadRequest(new { error = "Desteklenmeyen dosya türü." });
                 }
 
                 // 4. Benzersiz dosya adýný oluþtur
                 // örn: "0a1b2c3d-e4f5-4a5b-8c9d-0a1b2c3d4e5f.docx"
-                var newFileName = $"{Guid.NewGuid()}{extension}";
+                var guid = Guid.NewGuid();
+                var newFileName = $"{guid}{extension}";
 
                 // 5. Tam dosya yolunu güvenli bir þekilde birleþtir
                 var filePath = Path.Combine(directoryPath, newFileName);
@@ -215,86 +241,94 @@ namespace FileSharingWithQR.Controllers
                     await file.CopyToAsync(stream);
                 }
 
-                // 7. Frontend'e dosyanýn yeni kimliðini (adýný) döndür (Çözüm 2)
-                // DÝKKAT: GetFile API'niz dosya adýný UZANTISIZ bekliyordu.
-                // Bu yüzden sadece GUID'i (uzantýsýz halini) döndürmek daha doðru olabilir.
-                // Bu, GetFile API'nizdeki dosya arama mantýðýnýza baðlý.
+                // --- YENÝ KISIM: Metadata JSON oluþtur ---
+                var metadata = new FileMetadata
+                {
+                    ExpireDate = endTime.ToUniversalTime(), // UTC kaydetmek her zaman iyidir
+                    OriginalFileName = file.FileName
+                };
 
-                // Öneri: GetFile API'nizi de uzantýlý isimle arayacak þekilde güncelleyin.
-                // Þimdilik, GetFile'ýn uzantýsýz aradýðýný varsayarak:
-                var fileId = Path.GetFileNameWithoutExtension(newFileName); // Sadece GUID kýsmý
+                var jsonPath = Path.Combine(directoryPath, $"{guid}.json");
+                await System.IO.File.WriteAllTextAsync(jsonPath, JsonSerializer.Serialize(metadata));
 
-                // Eðer GetFile'ý güncellerseniz þunu kullanýn:
-                // var fileId = newFileName; // "guid.docx"
 
-                return Ok(new { token = JwtHelper.CreateToken(fileId, endTime) });
+                return Ok(new { token = JwtHelper.CreateToken(newFileName, endTime, "local") });
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Dosya yükleme hatasý: {ex.Message}");
-                return StatusCode(500, "Dosya yüklenirken sunucuda bir hata oluþtu.");
+                return StatusCode(500, new { error = "Dosya yüklenirken sunucuda bir hata oluþtu." });
             }
         }
 
 
+
         [HttpGet("File")]
-        public async Task<IActionResult> GetFile([FromQuery]string token)
+        public async Task<IActionResult> GetFile([FromQuery] string token, [FromServices] IGoogleAuthProvider auth)
         {
-            //try
-            //{
-                //-check token endDate is valid
-                string fileId = "";
-                if (!JwtHelper.VerifyToken(token, out fileId)) 
-                {
-                    return StatusCode(StatusCodes.Status401Unauthorized, "The token is invalid. Sharing time is expired.");
-                }
+
+            string fileName = "";
+            string source = "";
+
+            if (!JwtHelper.VerifyToken(token, out fileName, out source))
+            {
+                return StatusCode(StatusCodes.Status401Unauthorized, "The token is invalid. Sharing time is expired.");
+            }
+
+            //-get file by fileId
+            Console.WriteLine("GetFile.fileName:" + fileName);
+
+            var fileFolder = "UploadedFiles\\";
+            if(source == "local")
+            {
+                var filePath = fileFolder + fileName;
  
-                //-get file by fileId
-                Console.WriteLine("GetFile.fileId" + fileId);
 
-                var files = Directory.GetFiles("UploadedFiles");
-                Console.WriteLine("files.length:" + files.Length);
+                var extension = Path.GetExtension(filePath).TrimStart('.');
+                Console.WriteLine("fileExt:" + extension);
 
-                //var filesWithoutExts = files.Select(file => file.Remove(file.LastIndexOf('.')));
-
-                var fileIdwithPath = "UploadedFiles\\" + fileId;
-                string? filePath = null;
-                string fileExt = "";
-                foreach (var file in files)
+                try
                 {
-                    var fileWithoutext = file.Remove(file.LastIndexOf('.'));
-                    if (fileWithoutext == fileIdwithPath)
+                    var stream = System.IO.File.OpenRead(filePath);
+                    string mimeType = "";
+                    if (!FileServices.TryGetMimeType(extension, out mimeType))
                     {
-                        filePath = file;
-                        fileExt = file.Substring(file.LastIndexOf('.') + 1);
+                        return BadRequest(new { error = $"This file type ({extension}) is not supported. Supported types are: docx, pdf, jpeg, png, xlsx, pptx" });
+                    }
+
+
+                    return File(stream, mimeType, fileName);
+                }
+                catch(FileNotFoundException e)
+                {
+                    return NotFound();
+                }
+            }
+            else if(source == "drive")
+            {
+                try
+                {
+                    var result = await GoogleHelper.DownloadADriveFileWithMemoryStream(auth, fileName);
+                    return File(result.Item1, result.Item2, result.Item3);
+                }
+                catch (Exception e)
+                {
+                    // TODO(developer) - handle error appropriately
+                    if (e is AggregateException)
+                    {
+                        Console.WriteLine("Credential Not found");
+                    }
+                    else
+                    {
+                        throw;
                     }
                 }
-
-                if (filePath == null)
-                {
-                    Console.WriteLine("tokende belirtilen dosya sistemde bulunamadý, file:" + fileId);
-                    return StatusCode(StatusCodes.Status401Unauthorized, "The file is not found.");
-                }
-
-                Console.WriteLine("fileExt:" + fileExt);
-                Console.WriteLine("FilePath:" + filePath);
-                var stream = System.IO.File.OpenRead(filePath);
-
-                string mimeType = "";
-                if(!FileServices.TryGetMimeType(fileExt, out mimeType))
-                {
-                    return BadRequest($"This file type ({fileExt}) is not supported. Supported types are: docx, pdf, jpeg, png");
-                }
-
-            string fileDownloadName = fileId + "." + fileExt;
-
-            return File(stream, mimeType, fileDownloadName);
-            //}
-           //catch (Exception e)
-            //{
-                
-            //}
-        
+                return NotFound();
+            }
+            else
+            {
+                return BadRequest("source value must be local or drive");
+            }
         }
 
 

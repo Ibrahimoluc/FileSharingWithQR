@@ -9,10 +9,10 @@ public class JwtHelper
     public static string Key = Environment.GetEnvironmentVariable("JWTKey");
 
     // CreateToken metodunuz (Referans olarak, değişiklik yok)
-    public static string CreateToken(string fileId, DateTime endDate)
+    public static string CreateToken(string fileId, DateTime endDate, string source)
     {
         //payload encoding in Base64
-        string payload = JsonSerializer.Serialize(new { fileId = fileId, endDate = endDate });
+        string payload = JsonSerializer.Serialize(new { fileId = fileId, endDate = endDate, source = source});
         Console.WriteLine(payload);
 
         ReadOnlySpan<byte> bytes = new UTF8Encoding().GetBytes(payload);
@@ -56,9 +56,10 @@ public class JwtHelper
     }
 
     // === ÖNERİLEN GÜNCELLENMİŞ VerifyToken METODU ===
-    public static bool VerifyToken(string token, out string? fileId)
+    public static bool VerifyToken(string token, out string? fileId, out string? source)
     {
         fileId = null;
+        source = null;
         try
         {
             //-Token'ı parçalarına ayır
@@ -125,6 +126,7 @@ public class JwtHelper
 
             Console.WriteLine($"Payload.fileId: {payloadObject.fileId}");
             Console.WriteLine($"Payload.endDate: {payloadObject.endDate}");
+            Console.WriteLine($"Payload.source: {payloadObject.source}");
 
             //-Payload'u doğrula (Tarih kontrolü)
             if (DateTime.Compare(payloadObject.endDate, DateTime.UtcNow) <= 0)
@@ -134,6 +136,7 @@ public class JwtHelper
             }
 
             fileId = payloadObject.fileId;
+            source = payloadObject.source;
             return true;
         }
         catch (ArgumentException ex)
@@ -183,4 +186,5 @@ public class Payload
 {
     public string fileId { get; set; }
     public DateTime endDate { get; set; }
+    public string source { get; set; } // "local" veya "drive"
 }

@@ -53,7 +53,8 @@ namespace FileSharingWithQR.Services
             }
 
             string fileGuid = Guid.NewGuid().ToString();
-            var stream = System.IO.File.Create("UploadedFiles/" + fileGuid + "." + extension);
+            var fileName = fileGuid + "." + extension;
+            var stream = System.IO.File.Create("UploadedFiles/" + fileName);
 
             if (exportRequest != null)
             {
@@ -90,7 +91,91 @@ namespace FileSharingWithQR.Services
             }
                 
             stream.Dispose();
-            return fileGuid;
+            return fileName;
+        }
+
+        public static async Task<(Stream, string, string)> DownloadADriveFileWithMemoryStream(IGoogleAuthProvider auth, string fileId)
+        {
+            GoogleCredential cred = await auth.GetCredentialAsync();
+            var service = new DriveService(new BaseClientService.Initializer
+            {
+                HttpClientInitializer = cred
+            });
+
+
+            var request = service.Files.Get(fileId);
+            var fileMetaData = await request.ExecuteAsync();
+            var mimeType = fileMetaData.MimeType;
+            ExportRequest? exportRequest = null;
+
+            if (IsGoogleWorkspaceFile(mimeType))
+            {
+                // Hangi formata dönüştüreceğimizi belirliyoruz
+                var exportMimeType = GetExportMimeType(mimeType);
+                Console.WriteLine($"Google Dosyası algılandı. {exportMimeType} formatına dönüştürülüyor...");
+
+                // Export isteği oluştur
+                exportRequest = service.Files.Export(fileId, exportMimeType);
+
+                // İndirirken ilerlemeyi takip et (Opsiyonel)
+                exportRequest.MediaDownloader.ProgressChanged += progress =>
+                {
+                    if (progress.Status == DownloadStatus.Failed)
+                    {
+                        Console.WriteLine("Dönüştürme başarısız: " + progress.Exception.Message);
+                    }
+                };
+
+            }
+
+            var stream = new MemoryStream();
+
+            if (exportRequest != null)
+            {
+                await exportRequest.DownloadAsync(stream);
+            }
+            else
+            {
+                // Add a handler which will be notified on progress changes.
+                // It will notify on each chunk download and when the
+                // download is completed or failed.
+                request.MediaDownloader.ProgressChanged +=
+                progress =>
+                {
+                    switch (progress.Status)
+                    {
+                        case DownloadStatus.Downloading:
+                            {
+                                Console.WriteLine(progress.BytesDownloaded);
+                                break;
+                            }
+                        case DownloadStatus.Completed:
+                            {
+                                Console.WriteLine("Download complete.");
+                                break;
+                            }
+                        case DownloadStatus.Failed:
+                            {
+                                Console.WriteLine("Download failed. " + progress.Exception.Message);
+                                break;
+                            }
+                    }
+                };
+                await request.DownloadAsync(stream);
+            }
+            if (stream.CanSeek)
+            {
+                stream.Seek(0, SeekOrigin.Begin);
+            }
+
+            string extension = "";
+            if(!FileServices.TryGetExt(mimeType, out extension))
+            {
+                throw new Exception("Invalid file type");
+            }
+
+            var filename = Guid.NewGuid().ToString() + "." + extension;
+            return (stream, mimeType, filename);
         }
 
 

@@ -1,3 +1,4 @@
+using FileSharingWithQR.Services;
 using Google.Apis.Auth.AspNetCore3;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -12,6 +13,7 @@ var allowedFrontendOrigins = builder.Configuration.GetSection("AllowedFrontendOr
                                     .Get<string[]>() ?? new string[0];
 Console.WriteLine(allowedFrontendOrigins.Count());
 
+builder.Services.AddHostedService<FileCleanupService>();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(name: MyAllowSpecificOrigins,
