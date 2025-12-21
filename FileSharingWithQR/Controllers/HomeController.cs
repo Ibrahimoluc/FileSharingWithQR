@@ -256,7 +256,7 @@ namespace FileSharingWithQR.Controllers
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Dosya yükleme hatasý: {ex.Message}");
+                Console.WriteLine($"Dosya yükleme hatasý: {ex.ToString()}");
                 return StatusCode(500, new { error = "Dosya yüklenirken sunucuda bir hata oluþtu." });
             }
         }
@@ -278,11 +278,11 @@ namespace FileSharingWithQR.Controllers
             //-get file by fileId
             Console.WriteLine("GetFile.fileName:" + fileName);
 
-            var fileFolder = "UploadedFiles\\";
+            var fileFolder = "UploadedFiles";
             if(source == "local")
             {
-                var filePath = fileFolder + fileName;
- 
+                //var filePath = fileFolder + fileName;
+                var filePath = Path.Combine(fileFolder, fileName); 
 
                 var extension = Path.GetExtension(filePath).TrimStart('.');
                 Console.WriteLine("fileExt:" + extension);
@@ -301,6 +301,7 @@ namespace FileSharingWithQR.Controllers
                 }
                 catch(FileNotFoundException e)
                 {
+                    Console.WriteLine(e.ToString());
                     return NotFound();
                 }
             }
