@@ -11,7 +11,8 @@ var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 
 var allowedFrontendOrigins = builder.Configuration.GetSection("AllowedFrontendOrigins")
                                     .Get<string[]>() ?? new string[0];
-Console.WriteLine(allowedFrontendOrigins.Count());
+Console.WriteLine("allowedFrontendOrigins.Count:" + allowedFrontendOrigins.Count());
+Console.WriteLine(allowedFrontendOrigins[0]);
 
 builder.Services.AddHostedService<FileCleanupService>();
 builder.Services.AddCors(options =>
@@ -19,7 +20,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy(name: MyAllowSpecificOrigins,
                       policy =>
                       {
-                          policy.WithOrigins("https://localhost:44309", "https://localhost:44310", "https://100.103.166.72") // React uygulamanýzýn adresi
+                          policy.WithOrigins("https://localhost:44309", "https://localhost:44310", "https://100.103.166.72", "https://qr-code-project-react.onrender.com") // React uygulamanýzýn adresi
                                 .AllowAnyHeader()
                                 .AllowAnyMethod()
                                 .AllowCredentials(); // <-- ÇOK ÖNEMLÝ

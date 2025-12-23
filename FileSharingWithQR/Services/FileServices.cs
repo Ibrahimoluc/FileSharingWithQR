@@ -13,6 +13,7 @@ namespace FileSharingWithQR.Services
         public static Dictionary<string, string> validExtsAndMimeTypes = new Dictionary<string, string>(){
             {"docx", "application/vnd.google-apps.document"},
             {"jpg", "image/jpeg"},
+            {"png", "image/png"},
             {"pdf", "application/pdf"},
             {"xlsx", "application/vnd.google-apps.spreadsheet" },
             {"pptx", "application/vnd.google-apps.presentation" }

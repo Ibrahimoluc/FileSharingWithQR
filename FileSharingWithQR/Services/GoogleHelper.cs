@@ -1,4 +1,6 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
+using System.Text.Json;
 using Google.Apis.Auth.AspNetCore3;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Download;
@@ -11,7 +13,7 @@ namespace FileSharingWithQR.Services
 {
     public class GoogleHelper
     {
-        public static async Task<string> DownloadADriveFile(IGoogleAuthProvider auth, string fileId)
+        public static async Task<string> DownloadADriveFile(IGoogleAuthProvider auth, string fileId, DateTime endTime)
         {
             GoogleCredential cred = await auth.GetCredentialAsync();
             var service = new DriveService(new BaseClientService.Initializer
@@ -52,9 +54,20 @@ namespace FileSharingWithQR.Services
                     $"This file type ({mimeType}) is not supported. Supported types are: docx, pdf, jpeg, png");
             }
 
+            // Dosya uzunluğu kontrolü
+            if(fileMetaData.Size > 15 * 1024 * 1024)
+            {
+                Console.WriteLine("Dosya boyutu 15MB'tan büyük olamaz.");
+                throw new ApplicationException("Dosya boyutu 15MB'tan büyük olamaz.");
+            }
+
             string fileGuid = Guid.NewGuid().ToString();
             var fileName = fileGuid + "." + extension;
-            var stream = System.IO.File.Create("UploadedFiles/" + fileName);
+            string directoryPath = "UploadedFiles";
+            Directory.CreateDirectory(directoryPath);
+
+            var filePath = Path.Combine(directoryPath, fileName);
+            var stream = System.IO.File.Create(filePath);
 
             if (exportRequest != null)
             {
@@ -89,7 +102,17 @@ namespace FileSharingWithQR.Services
                 };
                 await request.DownloadAsync(stream);
             }
-                
+
+            // --- YENİ KISIM: Metadata JSON oluştur ---
+            var metadata = new FileMetadata
+            {
+                ExpireDate = endTime.ToUniversalTime(), // UTC kaydetmek her zaman iyidir
+                OriginalFileName = fileName
+            };
+
+            var jsonPath = Path.Combine(directoryPath, $"{fileGuid}.json");
+            await System.IO.File.WriteAllTextAsync(jsonPath, JsonSerializer.Serialize(metadata));
+
             stream.Dispose();
             return fileName;
         }

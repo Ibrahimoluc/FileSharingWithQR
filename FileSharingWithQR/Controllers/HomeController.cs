@@ -44,7 +44,7 @@ namespace FileSharingWithQR.Controllers
                     pageToken = PageTokenManager.GetPageToken(stack, PageDirection);
                 }
             }
-            catch(InvalidOperationException e)
+            catch (InvalidOperationException e)
             {
                 Console.WriteLine("Stack boþaldi");
             }
@@ -61,7 +61,7 @@ namespace FileSharingWithQR.Controllers
             var filteredFiles = files.Files.Where(x => FileServices.IsMimeTypeValid(x.MimeType));
             var fileNamesAndIds = filteredFiles.Select(x => new { Id = x.Id, Name = x.Name }).ToList();
 
-            
+
             stack.Push(files.NextPageToken);
             HttpContext.Session.SetStringStack("pageTokens", stack);
 
@@ -110,28 +110,28 @@ namespace FileSharingWithQR.Controllers
         }
 
 
-        [HttpGet("driveFile-Download/{fileId}")]
-        [GoogleScopedAuthorize(DriveService.ScopeConstants.DriveReadonly)]
-        public async Task<IActionResult> DriveDownloadFile([FromServices] IGoogleAuthProvider auth, string fileId)
-        {
-            try
-            {
-                return Ok(await GoogleHelper.DownloadADriveFile(auth, fileId));
-            }
-            catch (Exception e)
-            {
-                // TODO(developer) - handle error appropriately
-                if (e is AggregateException)
-                {
-                    Console.WriteLine("Credential Not found");
-                }
-                else
-                {
-                    throw;
-                }
-            }
-            return NotFound();
-        }
+        //[HttpGet("driveFile-Download/{fileId}")]
+        //[GoogleScopedAuthorize(DriveService.ScopeConstants.DriveReadonly)]
+        //public async Task<IActionResult> DriveDownloadFile([FromServices] IGoogleAuthProvider auth, string fileId)
+        //{
+        //    try
+        //    {
+        //        return Ok(await GoogleHelper.DownloadADriveFile(auth, fileId));
+        //    }
+        //    catch (Exception e)
+        //    {
+        //        // TODO(developer) - handle error appropriately
+        //        if (e is AggregateException)
+        //        {
+        //            Console.WriteLine("Credential Not found");
+        //        }
+        //        else
+        //        {
+        //            throw;
+        //        }
+        //    }
+        //    return NotFound();
+        //}
 
         [HttpGet("driveFile-Download2/{fileId}")]
         [GoogleScopedAuthorize(DriveService.ScopeConstants.DriveReadonly)]
@@ -161,7 +161,7 @@ namespace FileSharingWithQR.Controllers
 
         [HttpGet("FileToken/{fileId}")]
         [GoogleScopedAuthorize(DriveService.ScopeConstants.DriveReadonly)]
-        public IActionResult GetFileToken([FromServices] IGoogleAuthProvider auth, string fileId, DateTime endTime)
+        public async Task<IActionResult> GetFileToken([FromServices] IGoogleAuthProvider auth, string fileId, DateTime endTime)
         {
             try
             {
@@ -173,7 +173,9 @@ namespace FileSharingWithQR.Controllers
                     return BadRequest(new { error = "Expiration Date is invalid." });
                 }
 
-                return Ok(new { token = JwtHelper.CreateToken(fileId, endTime, "drive") });
+                var filename = await GoogleHelper.DownloadADriveFile(auth, fileId, endTime);
+
+                return Ok(new { token = JwtHelper.CreateToken(filename, endTime, "drive") });
             }
             catch (NotSupportedException e)
             {
@@ -182,6 +184,10 @@ namespace FileSharingWithQR.Controllers
             catch (AggregateException e)
             {
                 return Unauthorized(e.Message);
+            }
+            catch (ApplicationException e)
+            {
+                return BadRequest(new { error = e.Message });
             }
         }
 
@@ -202,11 +208,11 @@ namespace FileSharingWithQR.Controllers
                 return BadRequest(new { error = "Dosya yüklenmedi." });
             }
 
-  
-            if (file.Length > 10 * 1024 * 1024)
+
+            if (file.Length > 15 * 1024 * 1024)
             {
-                Console.WriteLine("Dosya boyutu 10MB'tan büyük olamaz.");
-                return BadRequest(new { error = "Dosya boyutu 10MB'tan büyük olamaz." });
+                Console.WriteLine("Dosya boyutu 15MB'tan büyük olamaz.");
+                return BadRequest(new { error = "Dosya boyutu 15MB'tan büyük olamaz." });
             }
 
             try
@@ -222,7 +228,7 @@ namespace FileSharingWithQR.Controllers
                 // örn: ".docx" veya ".jpg"
                 var extension = Path.GetExtension(file.FileName);
 
-                 if (!FileServices.TryGetMimeType(extension.TrimStart('.'), out _))
+                if (!FileServices.TryGetMimeType(extension.TrimStart('.'), out _))
                 {
                     return BadRequest(new { error = "Desteklenmeyen dosya türü." });
                 }
@@ -279,57 +285,31 @@ namespace FileSharingWithQR.Controllers
             Console.WriteLine("GetFile.fileName:" + fileName);
 
             var fileFolder = "UploadedFiles";
-            if(source == "local")
+
+            //var filePath = fileFolder + fileName;
+            var filePath = Path.Combine(fileFolder, fileName);
+
+            var extension = Path.GetExtension(filePath).TrimStart('.');
+            Console.WriteLine("fileExt:" + extension);
+
+            try
             {
-                //var filePath = fileFolder + fileName;
-                var filePath = Path.Combine(fileFolder, fileName); 
-
-                var extension = Path.GetExtension(filePath).TrimStart('.');
-                Console.WriteLine("fileExt:" + extension);
-
-                try
+                var stream = System.IO.File.OpenRead(filePath);
+                string mimeType = "";
+                if (!FileServices.TryGetMimeType(extension, out mimeType))
                 {
-                    var stream = System.IO.File.OpenRead(filePath);
-                    string mimeType = "";
-                    if (!FileServices.TryGetMimeType(extension, out mimeType))
-                    {
-                        return BadRequest(new { error = $"This file type ({extension}) is not supported. Supported types are: docx, pdf, jpeg, png, xlsx, pptx" });
-                    }
+                    return BadRequest(new { error = $"This file type ({extension}) is not supported. Supported types are: docx, pdf, jpeg, png, xlsx, pptx" });
+                }
 
 
-                    return File(stream, mimeType, fileName);
-                }
-                catch(FileNotFoundException e)
-                {
-                    Console.WriteLine(e.ToString());
-                    return NotFound();
-                }
+                return File(stream, mimeType, fileName);
             }
-            else if(source == "drive")
+            catch (FileNotFoundException e)
             {
-                try
-                {
-                    var result = await GoogleHelper.DownloadADriveFileWithMemoryStream(auth, fileName);
-                    return File(result.Item1, result.Item2, result.Item3);
-                }
-                catch (Exception e)
-                {
-                    // TODO(developer) - handle error appropriately
-                    if (e is AggregateException)
-                    {
-                        Console.WriteLine("Credential Not found");
-                    }
-                    else
-                    {
-                        throw;
-                    }
-                }
+                Console.WriteLine(e.ToString());
                 return NotFound();
             }
-            else
-            {
-                return BadRequest("source value must be local or drive");
-            }
+
         }
 
 
@@ -351,8 +331,8 @@ namespace FileSharingWithQR.Controllers
                 HttpContext.Session.SetString("Key", "The Doctor");
             }
             var name = HttpContext.Session.GetString("Key");
-            
-            return Ok(str+name);
+
+            return Ok(str + name);
         }
     }
 }
